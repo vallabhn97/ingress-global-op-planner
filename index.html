@@ -109,18 +109,12 @@
 
       .result-row {
         display: flex;
-        flex-direction: column;
-        gap: 0.35rem;
+        justify-content: space-between;
+        align-items: center;
         padding: 0.85rem 1.15rem;
         background: #090e17;
         border-radius: 8px;
         border: 1px solid var(--border);
-      }
-
-      .result-row-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
       }
 
       .result-label {
@@ -136,10 +130,12 @@
         color: var(--accent-green);
       }
 
-      .breakdown {
-        font-size: 0.8rem;
-        color: var(--accent);
-        font-weight: 500;
+      .rule-note {
+        margin-top: 1rem;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        text-align: center;
+        line-height: 1.4;
       }
     </style>
   </head>
@@ -158,13 +154,11 @@
       </div>
 
       <div class="form-group">
-        <label for="modRarity">Max Mod Rarity (R)</label>
+        <label for="modRarity">Mod Rarity</label>
         <select id="modRarity" onchange="calculate()">
-          <option value="very_rare" selected>
-            Very Rare (8 Pts) → 2nd Mod: Rare (4 Pts)
-          </option>
-          <option value="rare">Rare (4 Pts) → 2nd Mod: Common (2 Pts)</option>
-          <option value="common">Common (2 Pts) → Single Mod Only</option>
+          <option value="very_rare" selected>Very Rare (8 Pts)</option>
+          <option value="rare">Rare (4 Pts)</option>
+          <option value="common">Common (2 Pts)</option>
         </select>
       </div>
 
@@ -181,22 +175,16 @@
 
       <div class="results">
         <div class="result-row">
-          <div class="result-row-header">
-            <span class="result-label">Portals Required:</span>
-            <span class="result-val" id="resPortals">0</span>
-          </div>
+          <span class="result-label">Portals Required:</span>
+          <span class="result-val" id="resPortals">0</span>
         </div>
         <div class="result-row">
-          <div class="result-row-header">
-            <span class="result-label">Total Mods Required:</span>
-            <span class="result-val" id="resTotalMods">0</span>
-          </div>
+          <span class="result-label">Total Mods Required:</span>
+          <span class="result-val" id="resTotalMods">0</span>
         </div>
         <div class="result-row">
-          <div class="result-row-header">
-            <span class="result-label">Mods Required Per Agent:</span>
-          </div>
-          <div class="result-val breakdown" id="resModsPerAgent">-</div>
+          <span class="result-label">Mods Required Per Agent:</span>
+          <span class="result-val" id="resModsPerAgent">0</span>
         </div>
       </div>
     </div>
@@ -218,29 +206,10 @@
           return;
         }
 
-        // Rarity configuration
         const rarityConfig = {
-          very_rare: {
-            rName: "Very Rare",
-            rPts: 8,
-            r1Name: "Rare",
-            r1Pts: 4,
-            hasR1: true,
-          },
-          rare: {
-            rName: "Rare",
-            rPts: 4,
-            r1Name: "Common",
-            r1Pts: 2,
-            hasR1: true,
-          },
-          common: {
-            rName: "Common",
-            rPts: 2,
-            r1Name: "None",
-            r1Pts: 0,
-            hasR1: false,
-          },
+          very_rare: { name: "Very Rare", pts: 8 },
+          rare: { name: "Rare", pts: 4 },
+          common: { name: "Common", pts: 2 },
         };
 
         const cfg = rarityConfig[modRarityKey];
@@ -249,8 +218,7 @@
         let agents = Array.from({ length: numAgents }, (_, i) => ({
           id: i + 1,
           points: 0,
-          modsR: 0,
-          modsR1: 0,
+          modsDeployed: 0,
           portalBonuses: {},
         }));
 
@@ -266,23 +234,12 @@
           steps++;
           let agent = agents[currentAgentIdx];
 
-          // 1. Try to find an existing portal where agent can deploy 1st mod (Rarity R)
+          // Since only 1 mod per portal per agent counts toward points, each agent deploys
+          // 1 mod per portal (their rarest mod) to maximize points and leave slots for other agents' unique bonuses.
           let portal = portals.find(
             (p) => p.totalMods < 4 && (p.agentModCount[agent.id] || 0) === 0,
           );
-          let isSecondMod = false;
 
-          // 2. If no such portal, try to find an existing portal where agent can deploy 2nd mod (Rarity R-1)
-          if (!portal && cfg.hasR1) {
-            portal = portals.find(
-              (p) => p.totalMods < 4 && (p.agentModCount[agent.id] || 0) === 1,
-            );
-            if (portal) {
-              isSecondMod = true;
-            }
-          }
-
-          // 3. If still no portal, create a new portal
           if (!portal) {
             portal = {
               id: portals.length + 1,
@@ -292,24 +249,17 @@
               currentBonus: 0,
             };
             portals.push(portal);
-            isSecondMod = false;
           }
 
-          // Execute Deployment
+          // Deploy single mod
           portal.totalMods++;
-          portal.agentModCount[agent.id] =
-            (portal.agentModCount[agent.id] || 0) + 1;
+          portal.agentModCount[agent.id] = 1;
           portal.uniqueAgents.add(agent.id);
 
-          if (isSecondMod) {
-            agent.points += cfg.r1Pts;
-            agent.modsR1++;
-          } else {
-            agent.points += cfg.rPts;
-            agent.modsR++;
-          }
+          agent.points += cfg.pts;
+          agent.modsDeployed++;
 
-          // Recalculate Portal Bonus
+          // Recalculate Portal Bonus for unique agents
           const newBonus = bonusMap[portal.uniqueAgents.size] || 0;
           if (newBonus !== portal.currentBonus) {
             portal.uniqueAgents.forEach((aId) => {
@@ -324,46 +274,14 @@
           currentAgentIdx = (currentAgentIdx + 1) % numAgents;
         }
 
-        // Calculate totals
-        const totalR = agents.reduce((sum, a) => sum + a.modsR, 0);
-        const totalR1 = agents.reduce((sum, a) => sum + a.modsR1, 0);
-        const totalMods = totalR + totalR1;
+        const totalMods = agents.reduce((sum, a) => sum + a.modsDeployed, 0);
+        const modsPerAgent = agents[0].modsDeployed;
 
-        // Update UI
         document.getElementById("resPortals").innerText = portals.length;
-
-        if (cfg.hasR1 && totalR1 > 0) {
-          document.getElementById("resTotalMods").innerHTML =
-            `${totalMods} <span class="breakdown">(${totalR} ${cfg.rName}, ${totalR1} ${cfg.r1Name})</span>`;
-        } else {
-          document.getElementById("resTotalMods").innerText =
-            `${totalMods} ${cfg.rName}`;
-        }
-
-        // Per agent formatting
-        const allEqual = agents.every(
-          (a) => a.modsR === agents[0].modsR && a.modsR1 === agents[0].modsR1,
-        );
-
-        if (allEqual) {
-          if (cfg.hasR1 && agents[0].modsR1 > 0) {
-            document.getElementById("resModsPerAgent").innerText =
-              `${agents[0].modsR} ${cfg.rName} + ${agents[0].modsR1} ${cfg.r1Name}`;
-          } else {
-            document.getElementById("resModsPerAgent").innerText =
-              `${agents[0].modsR} ${cfg.rName}`;
-          }
-        } else {
-          const perAgentStr = agents
-            .map((a) => {
-              if (cfg.hasR1 && a.modsR1 > 0) {
-                return `Agent ${a.id}: ${a.modsR} ${cfg.rName} + ${a.modsR1} ${cfg.r1Name}`;
-              }
-              return `Agent ${a.id}: ${a.modsR} ${cfg.rName}`;
-            })
-            .join("\n");
-          document.getElementById("resModsPerAgent").innerText = perAgentStr;
-        }
+        document.getElementById("resTotalMods").innerText =
+          `${totalMods} ${cfg.name}`;
+        document.getElementById("resModsPerAgent").innerText =
+          `${modsPerAgent} ${cfg.name}`;
       }
 
       calculate();
